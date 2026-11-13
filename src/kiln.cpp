@@ -1,56 +1,192 @@
 #include "skopin/kiln.hpp"
+#include "skopin/measures.hpp"
 
-#include <stdexcept>
+namespace skopin 
+{
 
-namespace skopin {
+Kiln::Kiln() = default;
 
-Kiln::Kiln() {
-    throw std::logic_error("Kiln: реализуйте");
+Cone Kiln::cone() const
+{
+    return current_cone_;
 }
 
-Cone Kiln::cone() const {
-    throw std::logic_error("Kiln::cone: реализуйте");
+Door Kiln::door() const 
+{
+    return current_door_;
 }
 
-Door Kiln::door() const {
-    throw std::logic_error("Kiln::door: реализуйте");
+int Kiln::stokes() const 
+{
+    return current_stokes_;
 }
 
-int Kiln::stokes() const {
-    throw std::logic_error("Kiln::stokes: реализуйте");
+std::vector<Ware> Kiln::stack() const
+{
+    std::vector<Ware> result;
+    result.reserve(wares_.size());
+    for (const auto& item : wares_) 
+    {
+        result.push_back(item.ware);
+    }
+    return result;
 }
 
-std::vector<Ware> Kiln::stack() const {
-    throw std::logic_error("Kiln::stack: реализуйте");
+void Kiln::open() 
+{
+    if (current_door_ == Door::Open) 
+    {
+        throw KilnError("Door is already open");
+    }
+    if (current_cone_ == Cone::Glaze) 
+    {
+        throw KilnError("Cannot open door at Glaze cone");
+    }
+    current_door_ = Door::Open;
 }
 
-void Kiln::open() {
-    // Повторное открытие и открытие на поливном конусе — KilnError.
-    throw std::logic_error("Kiln::open: реализуйте");
+void Kiln::close() 
+{
+    if (current_door_ == Door::Closed) 
+    {
+        throw KilnError("Door is already closed");
+    }
+    current_door_ = Door::Closed;
 }
 
-void Kiln::close() {
-    throw std::logic_error("Kiln::close: реализуйте");
+void Kiln::fire() 
+{
+    if (current_door_ != Door::Closed) 
+    {
+        throw KilnError("Cannot fire with an open door");
+    }
+    if (current_cone_ == Cone::Glaze) 
+    {
+        throw KilnError("Cannot fire beyond Glaze cone");
+    }
+
+    for (const auto& item : wares_) 
+    {
+        if (item.ware.thickness_mm > kCrackThicknessMm) 
+        {
+            throw KilnError("Ware is too thick and will crack");
+        }
+        if (current_cone_ == Cone::Bisque && item.ware.program == Program::Bisque) 
+        {
+            throw KilnError("Cannot fire Bisque ware to Glaze cone");
+        }
+    }
+
+    if (current_cone_ == Cone::Cold) 
+    {
+        current_cone_ = Cone::Bisque;
+    } else if (current_cone_ == Cone::Bisque) 
+    {
+        current_cone_ = Cone::Glaze;
+        for (auto& item : wares_) 
+        {
+            item.reached_glaze = true;
+        }
+    }
+    ++current_stokes_;
 }
 
-void Kiln::fire() {
-    // Отказ не тратит такт и не поднимает конус наполовину.
-    throw std::logic_error("Kiln::fire: реализуйте");
+void Kiln::cool() 
+{
+    if (current_door_ != Door::Closed) 
+    {
+        throw KilnError("Cannot cool with an open door");
+    }
+    if (current_cone_ == Cone::Cold) 
+    {
+        throw KilnError("Cannot cool below Cold cone");
+    }
+
+    if (current_cone_ == Cone::Bisque) 
+    {
+        for (const auto& item : wares_) 
+        
+        {
+            if (item.ware.program == Program::Glaze && !item.reached_glaze)
+            {
+                throw KilnError("Cannot cool unglazed Glaze ware to Cold cone");
+            }
+        }
+        current_cone_ = Cone::Cold;
+    } 
+    else if (current_cone_ == Cone::Glaze) 
+    {
+        current_cone_ = Cone::Bisque;
+    }
+    ++current_stokes_;
 }
 
-void Kiln::cool() {
-    // Ровно один конус вниз. Полива, не видевшая поливного огня, остыть не даёт.
-    throw std::logic_error("Kiln::cool: реализуйте");
+void Kiln::load(const Ware& ware) 
+{
+    if (current_door_ != Door::Open) 
+    {
+        throw KilnError("Cannot load with a closed door");
+    }
+    if (current_cone_ == Cone::Glaze) 
+    {
+        throw KilnError("Cannot load at Glaze cone");
+    }
+    if (current_cone_ == Cone::Bisque && ware.program != Program::Glaze) 
+    {
+        throw KilnError("Only Glaze ware can be loaded at Bisque cone");
+    }
+    if (validateWare(ware).has_value()) 
+    {
+        throw KilnError("Invalid ware cannot be loaded");
+    }
+
+    for (const auto& item : wares_) 
+    {
+        if (item.ware.mark == ware.mark) 
+        {
+            throw KilnError("Duplicate mark in kiln");
+        }
+        if (item.ware.kind == WareKind::Sagger) 
+        {
+            throw KilnError("Kiln already contains a sagger");
+        }
+    }
+
+    if (ware.kind == WareKind::Sagger && !wares_.empty()) 
+    {
+        throw KilnError("Sagger requires an empty kiln");
+    }
+
+    if (!fitsInKiln(stack(), ware)) 
+    {
+        throw KilnError("Ware does not fit in kiln");
+    }
+
+    wares_.push_back(LoadedWare{ware, false});
 }
 
-void Kiln::load(const Ware&) {
-    // Внутри должна оказаться копия. Дверцу load сам не открывает.
-    throw std::logic_error("Kiln::load: реализуйте");
-}
+void Kiln::unload(const std::string& mark) 
+{
+    if (current_door_ != Door::Open) 
+    {
+        throw KilnError("Cannot unload with a closed door");
+    }
+    if (wares_.empty()) 
+    {
+        throw KilnError("Kiln is empty");
+    }
 
-void Kiln::unload(const std::string&) {
-    // Снимается только верх стопки. Поливу с утильного конуса не снимают.
-    throw std::logic_error("Kiln::unload: реализуйте");
+    const Ware& top = wares_.back().ware;
+    if (top.mark != mark) 
+    {
+        throw KilnError("Mark does not match top ware");
+    }
+    if (top.program == Program::Glaze && current_cone_ != Cone::Cold) 
+    {
+        throw KilnError("Glaze ware can only be unloaded at Cold cone");
+    }
+
+    wares_.pop_back();
 }
 
 }  // namespace skopin
