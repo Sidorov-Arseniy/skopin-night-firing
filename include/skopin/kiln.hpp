@@ -64,8 +64,14 @@ public:
     void unload(const std::string& mark);
 
 private:
-    // Поля и приватные методы добавляйте здесь.
-    // Публичные сигнатуры выше менять нельзя: тесты собираются против них.
+struct LoadedWare {
+    Ware ware;
+    bool reached_glaze = false;
+};
+Cone current_cone_ = Cone::Cold;
+Door current_door_ = Door::Closed;
+int current_stokes_ = 0;
+std::vector<LoadedWare> wares_;
 };
 
 }  // namespace skopin
